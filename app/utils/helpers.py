@@ -40,6 +40,37 @@ def generate_request_ids() -> Tuple[str, str]:
     return chat_id, msg_id
 
 
+def is_special_key_format(key: str) -> bool:
+    """检查是否为特殊格式的key（32位hex.随机字符串格式）"""
+    if not key or len(key) < 35:  # 至少32+1+2字符
+        return False
+    
+    # 检查是否包含点号分隔符
+    if '.' not in key:
+        return False
+    
+    parts = key.split('.')
+    if len(parts) != 2:
+        return False
+    
+    hex_part, suffix_part = parts
+    
+    # 检查第一部分是否为32位十六进制
+    if len(hex_part) != 32:
+        return False
+    
+    try:
+        int(hex_part, 16)  # 验证是否为有效十六进制
+    except ValueError:
+        return False
+    
+    # 检查第二部分是否有足够长度（至少2个字符）
+    if len(suffix_part) < 2:
+        return False
+    
+    return True
+
+
 def get_browser_headers(referer_chat_id: str = "") -> Dict[str, str]:
     """Get browser headers for API requests with dynamic User-Agent"""
     
@@ -154,10 +185,14 @@ def get_anonymous_token() -> str:
 
 def get_auth_token(downstream_key: Optional[str] = None) -> str:
     """Get authentication token (downstream key, anonymous or fixed)"""
-    # 如果启用了下游key并且提供了下游key，则使用下游key
-    if settings.USE_DOWNSTREAM_KEYS and downstream_key:
-        debug_log(f"使用下游key作为认证token: {downstream_key[:10]}...")
-        return downstream_key
+    # 如果提供了下游key，检查是否为特殊格式
+    if downstream_key:
+        if is_special_key_format(downstream_key):
+            debug_log(f"检测到特殊格式key，使用下游key: {downstream_key[:10]}...")
+            return downstream_key
+        else:
+            debug_log(f"key格式不匹配特殊格式，回退到默认模式: {downstream_key[:10]}...")
+            # 不匹配特殊格式，回退到默认处理
     
     # 如果启用了匿名模式，尝试获取匿名token
     if settings.ANONYMOUS_MODE:
@@ -189,7 +224,7 @@ def transform_thinking_content(content: str) -> str:
     
     # Remove line prefixes
     content = content.lstrip("> ")
-    content = content.replace("\n> ", "\n")
+    content = content.replace("\\n> ", "\\n")
     
     return content.strip()
 
