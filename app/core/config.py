@@ -32,10 +32,8 @@ class Settings(BaseSettings):
     SCAN_LIMIT: int = int(os.getenv("SCAN_LIMIT", "200000"))
     SKIP_AUTH_TOKEN: bool = os.getenv("SKIP_AUTH_TOKEN", "false").lower() == "true"
     
-    # Render Deployment Configuration
+    # Render Deployment Configuration - 已移除USE_DOWNSTREAM_KEYS，改为基于key格式自动检测
     RENDER_DEPLOYMENT: bool = os.getenv("RENDER_DEPLOYMENT", "true").lower() == "true"
-    USE_DOWNSTREAM_KEYS: bool = os.getenv("USE_DOWNSTREAM_KEYS", "true").lower() == "true"
-    DOWNSTREAM_KEYS: List[str] = os.getenv("DOWNSTREAM_KEYS", "").split(",") if os.getenv("DOWNSTREAM_KEYS") else []
     
     # Browser Headers
     CLIENT_HEADERS: Dict[str, str] = {
