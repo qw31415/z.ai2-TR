@@ -207,6 +207,22 @@ def get_auth_token(downstream_key: Optional[str] = None) -> str:
     return settings.BACKUP_TOKEN
 
 
+def get_fallback_token() -> str:
+    """获取回退token（匿名或备份token）"""
+    # 如果启用了匿名模式，尝试获取匿名token
+    if settings.ANONYMOUS_MODE:
+        try:
+            token = get_anonymous_token()
+            debug_log(f"回退：匿名token获取成功: {token[:10]}...")
+            return token
+        except Exception as e:
+            debug_log(f"回退：匿名token获取失败，使用备份token: {e}")
+    
+    # 使用备份token
+    debug_log(f"回退：使用备份token: {settings.BACKUP_TOKEN[:10]}...")
+    return settings.BACKUP_TOKEN
+
+
 def transform_thinking_content(content: str) -> str:
     """Transform thinking content according to configuration"""
     # Remove summary tags
@@ -232,9 +248,10 @@ def transform_thinking_content(content: str) -> str:
 def call_upstream_api(
     upstream_req: Any,
     chat_id: str,
-    auth_token: str
+    auth_token: str,
+    downstream_key: Optional[str] = None
 ) -> requests.Response:
-    """Call upstream API with proper headers"""
+    """Call upstream API with proper headers and fallback logic"""
     headers = get_browser_headers(chat_id)
     headers["Authorization"] = f"Bearer {auth_token}"
     
@@ -250,4 +267,27 @@ def call_upstream_api(
     )
     
     debug_log(f"上游响应状态: {response.status_code}")
+    
+    # 如果返回401且使用的是特殊格式key，尝试使用回退token重试
+    if response.status_code == 401 and downstream_key and is_special_key_format(downstream_key):
+        debug_log("特殊格式key认证失败，尝试使用回退token重试")
+        
+        # 获取回退token
+        fallback_token = get_fallback_token()
+        
+        # 更新headers
+        headers["Authorization"] = f"Bearer {fallback_token}"
+        
+        # 重试请求
+        debug_log("使用回退token重新调用上游API")
+        response = requests.post(
+            settings.API_ENDPOINT,
+            json=upstream_req.model_dump(exclude_none=True),
+            headers=headers,
+            timeout=60.0,
+            stream=True
+        )
+        
+        debug_log(f"回退token上游响应状态: {response.status_code}")
+    
     return response
