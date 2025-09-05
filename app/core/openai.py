@@ -62,23 +62,26 @@ async def chat_completions(
     try:
         # 提取下游key
         downstream_key = None
-        if settings.USE_DOWNSTREAM_KEYS and authorization.startswith("Bearer "):
+        if authorization.startswith("Bearer "):
             downstream_key = authorization[7:]  # 去掉"Bearer "前缀
-            debug_log(f"使用下游key作为认证token: {downstream_key[:10]}...")
+            debug_log(f"提取到key: {downstream_key[:10]}...")
         
-        # 如果不是使用下游key模式，验证API key（如果SKIP_AUTH_TOKEN未启用）
-        if not settings.USE_DOWNSTREAM_KEYS and not settings.SKIP_AUTH_TOKEN:
+        # 验证API key（如果SKIP_AUTH_TOKEN未启用且不是特殊格式key）
+        if not settings.SKIP_AUTH_TOKEN:
             if not authorization.startswith("Bearer "):
                 debug_log("缺少或无效的Authorization头")
                 raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
             
-            api_key = authorization[7:]
-            if api_key != settings.AUTH_TOKEN:
-                debug_log(f"无效的API key: {api_key}")
-                raise HTTPException(status_code=401, detail="Invalid API key")
-            
-            debug_log(f"API key验证通过，AUTH_TOKEN={api_key[:8]}......")
-        elif not settings.USE_DOWNSTREAM_KEYS and settings.SKIP_AUTH_TOKEN:
+            # 检查是否为特殊格式key，如果不是则验证固定token
+            from app.utils.helpers import is_special_key_format
+            if not is_special_key_format(downstream_key):
+                if downstream_key != settings.AUTH_TOKEN:
+                    debug_log(f"无效的API key: {downstream_key}")
+                    raise HTTPException(status_code=401, detail="Invalid API key")
+                debug_log(f"API key验证通过，AUTH_TOKEN={downstream_key[:8]}......")
+            else:
+                debug_log(f"检测到特殊格式key，跳过固定token验证: {downstream_key[:10]}...")
+        else:
             debug_log("SKIP_AUTH_TOKEN已启用，跳过API key验证")
         
         debug_log(f"请求解析成功 - 模型: {request.model}, 流式: {request.stream}, 消息数: {len(request.messages)}")
