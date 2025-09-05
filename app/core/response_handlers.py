@@ -42,12 +42,13 @@ def handle_upstream_error(error: UpstreamError) -> Generator[str, None, None]:
     """Handle upstream error response"""
     debug_log(f"上游错误: code={error.code}, detail={error.detail}")
     
-    # Send end chunk
-    end_chunk = create_openai_response_chunk(
+    # Send error chunk
+    error_chunk = create_openai_response_chunk(
         model=settings.PRIMARY_MODEL,
+        delta=Delta(content=f"Error: {error.detail}"),
         finish_reason="stop"
     )
-    yield f"data: {end_chunk.model_dump_json()}\n\n"
+    yield f"data: {error_chunk.model_dump_json()}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -90,12 +91,24 @@ class StreamResponseHandler(ResponseHandler):
         try:
             response = self._call_upstream()
         except Exception:
-            yield "data: {\"error\": \"Failed to call upstream\"}\n\n"
+            error_chunk = create_openai_response_chunk(
+                model=settings.PRIMARY_MODEL,
+                delta=Delta(content="Failed to call upstream"),
+                finish_reason="stop"
+            )
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
             return
         
         if response.status_code != 200:
             self._handle_upstream_error(response)
-            yield "data: {\"error\": \"Upstream error\"}\n\n"
+            error_chunk = create_openai_response_chunk(
+                model=settings.PRIMARY_MODEL,
+                delta=Delta(content="Upstream error"),
+                finish_reason="stop"
+            )
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
             return
         
         # Send initial role chunk
@@ -109,27 +122,37 @@ class StreamResponseHandler(ResponseHandler):
         debug_log("开始读取上游SSE流")
         sent_initial_answer = False
         
-        with SSEParser(response, debug_mode=settings.DEBUG_LOGGING) as parser:
-            for event in parser.iter_json_data(UpstreamData):
-                upstream_data = event['data']
-                
-                # Check for errors
-                if self._has_error(upstream_data):
-                    error = self._get_error(upstream_data)
-                    yield from handle_upstream_error(error)
-                    break
-                
-                debug_log(f"解析成功 - 类型: {upstream_data.type}, 阶段: {upstream_data.data.phase}, "
-                         f"内容长度: {len(upstream_data.data.delta_content)}, 完成: {upstream_data.data.done}")
-                
-                # Process content
-                yield from self._process_content(upstream_data, sent_initial_answer)
-                
-                # Check if done
-                if upstream_data.data.done or upstream_data.data.phase == "done":
-                    debug_log("检测到流结束信号")
-                    yield from self._send_end_chunk()
-                    break
+        try:
+            with SSEParser(response, debug_mode=settings.DEBUG_LOGGING) as parser:
+                for event in parser.iter_json_data(UpstreamData):
+                    upstream_data = event['data']
+                    
+                    # Check for errors
+                    if self._has_error(upstream_data):
+                        error = self._get_error(upstream_data)
+                        yield from handle_upstream_error(error)
+                        break
+                    
+                    debug_log(f"解析成功 - 类型: {upstream_data.type}, 阶段: {upstream_data.data.phase}, "
+                             f"内容长度: {len(upstream_data.data.delta_content)}, 完成: {upstream_data.data.done}")
+                    
+                    # Process content
+                    yield from self._process_content(upstream_data, sent_initial_answer)
+                    
+                    # Check if done
+                    if upstream_data.data.done or upstream_data.data.phase == "done":
+                        debug_log("检测到流结束信号")
+                        yield from self._send_end_chunk()
+                        break
+        except Exception as e:
+            debug_log(f"处理流时发生错误: {e}")
+            error_chunk = create_openai_response_chunk(
+                model=settings.PRIMARY_MODEL,
+                delta=Delta(content=f"Stream processing error: {str(e)}"),
+                finish_reason="stop"
+            )
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
     
     def _has_error(self, upstream_data: UpstreamData) -> bool:
         """Check if upstream data contains error"""
@@ -273,22 +296,26 @@ class NonStreamResponseHandler(ResponseHandler):
         full_content = []
         debug_log("开始收集完整响应内容")
         
-        with SSEParser(response, debug_mode=settings.DEBUG_LOGGING) as parser:
-            for event in parser.iter_json_data(UpstreamData):
-                upstream_data = event['data']
-                
-                if upstream_data.data.delta_content:
-                    content = upstream_data.data.delta_content
+        try:
+            with SSEParser(response, debug_mode=settings.DEBUG_LOGGING) as parser:
+                for event in parser.iter_json_data(UpstreamData):
+                    upstream_data = event['data']
                     
-                    if upstream_data.data.phase == "thinking":
-                        content = transform_thinking_content(content)
+                    if upstream_data.data.delta_content:
+                        content = upstream_data.data.delta_content
+                        
+                        if upstream_data.data.phase == "thinking":
+                            content = transform_thinking_content(content)
+                        
+                        if content:
+                            full_content.append(content)
                     
-                    if content:
-                        full_content.append(content)
-                
-                if upstream_data.data.done or upstream_data.data.phase == "done":
-                    debug_log("检测到完成信号，停止收集")
-                    break
+                    if upstream_data.data.done or upstream_data.data.phase == "done":
+                        debug_log("检测到完成信号，停止收集")
+                        break
+        except Exception as e:
+            debug_log(f"收集响应内容时发生错误: {e}")
+            raise HTTPException(status_code=502, detail="Failed to process upstream response")
         
         final_content = "".join(full_content)
         debug_log(f"内容收集完成，最终长度: {len(final_content)}")
