@@ -55,15 +55,16 @@ def handle_upstream_error(error: UpstreamError) -> Generator[str, None, None]:
 class ResponseHandler:
     """Base class for response handling"""
     
-    def __init__(self, upstream_req: UpstreamRequest, chat_id: str, auth_token: str):
+    def __init__(self, upstream_req: UpstreamRequest, chat_id: str, auth_token: str, downstream_key: Optional[str] = None):
         self.upstream_req = upstream_req
         self.chat_id = chat_id
         self.auth_token = auth_token
+        self.downstream_key = downstream_key
     
     def _call_upstream(self) -> requests.Response:
         """Call upstream API with error handling"""
         try:
-            return call_upstream_api(self.upstream_req, self.chat_id, self.auth_token)
+            return call_upstream_api(self.upstream_req, self.chat_id, self.auth_token, self.downstream_key)
         except Exception as e:
             debug_log(f"调用上游失败: {e}")
             raise
@@ -78,8 +79,8 @@ class ResponseHandler:
 class StreamResponseHandler(ResponseHandler):
     """Handler for streaming responses"""
     
-    def __init__(self, upstream_req: UpstreamRequest, chat_id: str, auth_token: str, has_tools: bool = False):
-        super().__init__(upstream_req, chat_id, auth_token)
+    def __init__(self, upstream_req: UpstreamRequest, chat_id: str, auth_token: str, has_tools: bool = False, downstream_key: Optional[str] = None):
+        super().__init__(upstream_req, chat_id, auth_token, downstream_key)
         self.has_tools = has_tools
         self.buffered_content = ""
         self.tool_calls = None
@@ -274,8 +275,8 @@ class StreamResponseHandler(ResponseHandler):
 class NonStreamResponseHandler(ResponseHandler):
     """Handler for non-streaming responses"""
     
-    def __init__(self, upstream_req: UpstreamRequest, chat_id: str, auth_token: str, has_tools: bool = False):
-        super().__init__(upstream_req, chat_id, auth_token)
+    def __init__(self, upstream_req: UpstreamRequest, chat_id: str, auth_token: str, has_tools: bool = False, downstream_key: Optional[str] = None):
+        super().__init__(upstream_req, chat_id, auth_token, downstream_key)
         self.has_tools = has_tools
     
     def handle(self) -> JSONResponse:
