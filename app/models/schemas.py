@@ -3,7 +3,7 @@ Application data models
 """
 
 from typing import Dict, List, Optional, Any, Union, Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ContentPart(BaseModel):
@@ -48,8 +48,8 @@ class UpstreamRequest(BaseModel):
     stream: bool
     model: str
     messages: List[Message]
-    params: Dict[str, Any] = {}
-    features: Dict[str, Any] = {}
+    params: Dict[str, Any] = Field(default_factory=dict)
+    features: Dict[str, Any] = Field(default_factory=dict)
     background_tasks: Optional[Dict[str, bool]] = None
     chat_id: Optional[str] = None
     id: Optional[str] = None
@@ -64,7 +64,7 @@ class Delta(BaseModel):
     """Stream delta model"""
 
     role: Optional[str] = None
-    content: Optional[str] = "" or None
+    content: Optional[str] = None
     reasoning_content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
 
