@@ -163,7 +163,7 @@ async def chat_completions(
         
         # Handle response based on stream flag
         if request.stream:
-            handler = StreamResponseHandler(upstream_req, chat_id, auth_token, has_tools)
+            handler = StreamResponseHandler(upstream_req, chat_id, auth_token, has_tools, downstream_key)
             return StreamingResponse(
                 handler.handle(),
                 media_type="text/event-stream",
@@ -173,7 +173,7 @@ async def chat_completions(
                 }
             )
         else:
-            handler = NonStreamResponseHandler(upstream_req, chat_id, auth_token, has_tools)
+            handler = NonStreamResponseHandler(upstream_req, chat_id, auth_token, has_tools, downstream_key)
             return handler.handle()
             
     except HTTPException:
